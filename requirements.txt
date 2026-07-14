@@ -1,10 +1,42 @@
+# --- Core backend ---
 fastapi>=0.110.0
 uvicorn>=0.28.0
 pydantic-settings>=2.2.0
+python-multipart>=0.0.9
+loguru>=0.7.2
+python-dotenv>=1.0.0
+
+# --- Vector DB & retrieval ---
 qdrant-client>=1.8.0
 sentence-transformers>=2.6.0
 flashrank>=0.2.0
+rank_bm25>=0.2.2
+
+# --- PDF processing ---
 pypdf>=4.1.0
-python-multipart>=0.0.9
-openai>=1.14.0
-loguru>=0.7.2
+pdfplumber>=0.11.0
+
+# --- LangChain ecosystem ---
+langchain>=0.2.0
+langchain-core>=0.2.0
+langchain-community>=0.4.0
+langchain-classic>=1.0.0
+langchain-google-genai>=2.0.0
+langchain_openai
+
+# --- Agentic orchestration ---
+langgraph>=1.0.0
+
+# --- Generation (Gemini) ---
+# Migrated from deprecated google-generativeai to the current unified SDK.
+google-genai>=1.0.0
+
+# --- Evaluation (Ragas) ---
+ragas>=0.4.0
+datasets>=2.20.0
+appdirs
+diskcache>=5.6.3
+nest-asyncio
+pysbd>=0.3.4
+tiktoken
+instructor

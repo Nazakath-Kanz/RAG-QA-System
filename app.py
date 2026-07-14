@@ -78,18 +78,29 @@ with col_chat:
         with st.chat_message(message["role"]):
             st.markdown(message["content"])
 
+    # Mode toggle — lets the user choose between the base pipeline and the
+    # self-correcting agentic pipeline (query rewrite + retry on low confidence)
+    agentic_mode = st.toggle("🤖 Agentic Mode (auto-retry on failed retrieval)", value=False)
+
     # Interactive input area
     if question := st.chat_input("Query anything regarding Kanz's architectural metrics..."):
         # Display User query instantly
         with st.chat_message("user"):
             st.markdown(question)
         st.session_state.messages.append({"role": "user", "content": question})
-        
+
+        endpoint = "http://127.0.0.1:8000/ask_agentic" if agentic_mode else "http://127.0.0.1:8000/ask"
+        spinner_text = (
+            "Routing query -> Retrieve -> Generate -> Confidence Check -> Retry if needed..."
+            if agentic_mode
+            else "Routing query -> Database Vectors -> FlashRank Rerank -> LLM Generation..."
+        )
+
         # Call Backend for Inference Synthesis
         with st.chat_message("assistant"):
-            with st.spinner("Routing query -> Database Vectors -> FlashRank Rerank -> LLM Generation..."):
+            with st.spinner(spinner_text):
                 try:
-                    res = requests.post("http://127.0.0.1:8000/ask", json={"question": question})
+                    res = requests.post(endpoint, json={"question": question})
                     if res.status_code == 200:
                         data = res.json()
                         answer = data.get("answer")

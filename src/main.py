@@ -1,6 +1,7 @@
 # src/main.py
-import pypdf
-from io import BytesIO
+from src.agent.graph import run_agent
+from src.database import qdrant_client
+from src.ingestion.pdf_parsing import extract_text_and_tables
 from fastapi import FastAPI, File, UploadFile, HTTPException, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from loguru import logger
@@ -49,15 +50,11 @@ async def upload_document(file: UploadFile = File(...)):
         file_bytes = await file.read()
         extracted_text = ""
 
-        # Handle PDF Text Extraction
+        # Handle PDF Text + Table Extraction (structure-aware)
         if file.filename.endswith('.pdf'):
-            logger.info(f"Parsing binary PDF streams using pypdf reader extractor...")
-            pdf_reader = pypdf.PdfReader(BytesIO(file_bytes))
-            for page in pdf_reader.pages:
-                text = page.extract_text()
-                if text:
-                    extracted_text += text + "\n"
-                    
+            logger.info(f"Parsing PDF using pdfplumber with table-aware extraction...")
+            extracted_text = extract_text_and_tables(file_bytes)
+
         # Handle Plain Text Extraction
         elif file.filename.endswith('.txt'):
             extracted_text = file_bytes.decode("utf-8")
@@ -66,10 +63,15 @@ async def upload_document(file: UploadFile = File(...)):
         if not extracted_text.strip():
             raise HTTPException(status_code=422, detail="Extraction step yielded an empty text body string from document.")
 
-        # --- PURGE EMBEDDING SLATE ---
-        # Forces Qdrant to drop its current collection and instantiate a clean index structure.
-        # This prevents overlapping chunk vectors from bleeding into comparative queries.
+       # --- PURGE EMBEDDING SLATE ---
+        # Actually drops the existing collection (init_vector_db alone only creates
+        # it if missing — it never deletes stale data from previous uploads).
         logger.info("Purging stale vectors and hard-resetting Qdrant collection space...")
+        try:
+            await qdrant_client.delete_collection(collection_name="enterprise_parent_child_kb")
+            logger.info("Existing collection dropped.")
+        except Exception:
+            logger.info("No existing collection to drop — proceeding fresh.")
         await init_vector_db()
 
         # Stream directly into the vector database pipeline using await
@@ -109,3 +111,27 @@ async def ask_question(request: QueryRequest):
     except Exception as e:
         logger.error(f"Execution failure downstream on the RAG serving inference layer: {e}")
         raise HTTPException(status_code=500, detail=f"RAG Inference Generation Engine pipeline failure: {str(e)}")
+
+@app.post("/ask_agentic", response_model=QueryResponse)
+async def ask_question_agentic(request: QueryRequest):
+    """
+    Agentic inference routing via LangGraph.
+    Runs Retrieve -> Generate -> Confidence Check -> (optional) Query Rewrite -> Retry.
+    Unlike /ask, this endpoint can self-correct once if the first retrieval
+    attempt yields no usable context, by rewriting the query and retrying
+    with different phrasing before giving up.
+    """
+    logger.info(f"Incoming AGENTIC RAG inference query router request: '{request.question}'")
+
+    try:
+        final_state = await run_agent(request.question)
+
+        return QueryResponse(
+            query=request.question,
+            answer=final_state["answer"],
+            context_used=final_state["contexts"]
+        )
+
+    except Exception as e:
+        logger.error(f"Execution failure downstream on the agentic RAG serving layer: {e}")
+        raise HTTPException(status_code=500, detail=f"Agentic RAG Inference Engine pipeline failure: {str(e)}")
